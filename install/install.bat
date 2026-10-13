@@ -26,7 +26,7 @@ if errorlevel 8 (
 echo.
 echo Done. Restart Fusion and find AlphaGenSAM in the OpenFX tool list.
 echo.
-echo Using Comfy Cloud (the default): open the node's "ComfyUI Backend" section, press
-echo "Get an API Key", create a key on the Comfy platform, then press "Set API Key..." and paste it.
+echo Using Comfy Local (the default): start ComfyUI and confirm the node's "local server"
+echo address is http://127.0.0.1:8188. Press "Test Connection" to verify it.
 echo.
 pause

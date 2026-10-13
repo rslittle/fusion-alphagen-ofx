@@ -42,7 +42,27 @@ Cloud gives you the compute while you keep working in Fusion.**
 
 To remove it, close Fusion and run `uninstall.bat` as administrator.
 
-## Set up Comfy Cloud (the default)
+## Set up Comfy Local (the default)
+
+1. Install [ComfyUI](https://www.comfy.org/download) 0.39 or later (core nodes only; no custom
+   node packs needed) and start it.
+2. In Fusion, create an AlphaGenSAM tool and open its **ComfyUI Backend** section. Leave
+   **backend** set to *Comfy Local*, confirm the **local server** address is
+   `http://127.0.0.1:8188`, and press **Test Connection**.
+3. Download the required models into ComfyUI's model folders:
+
+| Folder | File | Source |
+|---|---|---|
+| `checkpoints` | `sam3.1_multiplex_fp16.safetensors` | Comfy-Org repackage of Meta SAM 3.1 |
+| `diffusion_models` | `ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors` | `Lightricks/LTX-2.5` (gated: accept the license on Hugging Face) |
+| `text_encoders` | `gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors` | `Lightricks/LTX-2.5` |
+| `vae` | `ltx-2.5-video-vae-bf16.safetensors`, `ltx-2.5-audio-vae-bf16.safetensors` | `Lightricks/LTX-2.5` |
+| `latent_upscale_models` | `ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors` | `Lightricks/LTX-2.5` |
+| `loras/ltxv` | `ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors` | `Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen` |
+| `loras/ltxv` | `ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors` (or the 2.3 version) | `Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate` |
+| `geometry_estimation` | `depth_anything_3_mono_large.safetensors` | Comfy-Org repackage of Depth Anything 3 |
+
+## Or set up Comfy Cloud
 
 1. **Subscribe to Comfy Cloud** at [comfy.org](https://www.comfy.org/cloud). Running jobs
    through the API needs a paid plan; free accounts are refused.
@@ -63,26 +83,6 @@ computer, never inside the Fusion composition, so you can share `.comp` files sa
 Everything the node needs is already on Comfy Cloud: SAM 3.1, LTX-2.5, the Alpha-Gen and
 clean-plate IC-LoRAs, and Depth Anything 3. There's nothing to download.
 
-## Or use Comfy Local
-
-1. Install [ComfyUI](https://www.comfy.org/download) 0.39 or later (core nodes only; no custom
-   node packs needed) and start it.
-2. Download these models into ComfyUI's model folders:
-
-| Folder | File | Source |
-|---|---|---|
-| `checkpoints` | `sam3.1_multiplex_fp16.safetensors` | Comfy-Org repackage of Meta SAM 3.1 |
-| `diffusion_models` | `ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors` | `Lightricks/LTX-2.5` (gated: accept the license on Hugging Face) |
-| `text_encoders` | `gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors` | `Lightricks/LTX-2.5` |
-| `vae` | `ltx-2.5-video-vae-bf16.safetensors`, `ltx-2.5-audio-vae-bf16.safetensors` | `Lightricks/LTX-2.5` |
-| `latent_upscale_models` | `ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors` | `Lightricks/LTX-2.5` |
-| `loras` | `ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors` | `Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen` |
-| `loras` | `ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors` (or the 2.3 version) | `Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate` |
-| `geometry_estimation` | `depth_anything_3_mono_large.safetensors` | Comfy-Org repackage of Depth Anything 3 |
-
-3. In the node's **ComfyUI Backend** section, set **backend** to *Comfy Local*, check the
-   **local server** address (default `http://127.0.0.1:8000`) and press **Test Connection**.
-
 If a model is missing, the node names it when you press Process.
 
 ## Try the example
@@ -92,6 +92,13 @@ branch three AlphaGenSAM tools off it, typing `car`, `diner` and `person` in eac
 `select` field. Each tool pulls its own matte, which you can preview as a cut-out over a
 checkerboard.
 
+## Standalone ComfyUI graph
+
+`workflows/alphagen_all_in_one_api.json` is an API-format graph combining SAM 3.1 selection
+and LTX-2.5 Alpha-Gen into one prompt. Change its `LoadVideo` input and the SAM text prompt
+before running it through ComfyUI's `/prompt` API. It uses the model filenames listed above.
+This example graph is fixed to 121 frames at 1280x704; it has not been validated end to end.
+
 ## Use
 
 **One tool = one matte.** For several objects, branch several tools off the same plate
@@ -100,8 +107,8 @@ checkerboard.
 1. **Select what you want a matte of.**
    * **Type it** in `select`: `car`, `diner`. SAM 3.1 finds every instance. This is the
      primary way to select in Fusion.
-   * **Or click it** in the viewer (Ctrl+click includes, Ctrl+Shift+click excludes,
-     Alt+click deletes a dot) — where the host supports the OFX interact overlay. If the
+   * **Or click it** in the viewer (Ctrl+click includes, Ctrl+Shift+click or Ctrl+Alt+click
+     excludes, Alt+click on a dot deletes it) - where the host supports the OFX interact overlay. If the
      dots don't appear, use the typed `select` term instead.
    * If the object is lost later in the shot (it goes behind something and comes back),
      click it again on that frame. Up to 5 frames.
@@ -173,7 +180,7 @@ tools\make_release.bat 0.1.0
 test of the whole backend round trip:
 
 ```bat
-agsam_selftest <frames_dir> <count> <ref> <mode> <http://127.0.0.1:8000 | cloud> x,y,+ ... text:car ...
+agsam_selftest <frames_dir> <count> <ref> <mode> <http://127.0.0.1:8188 | cloud> x,y,+ ... text:car ...
 ```
 
 `make_release.bat` packs `dist\DUGco_AlphaGenSAM_<version>_win64.zip` with the bundle,

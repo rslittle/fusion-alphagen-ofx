@@ -436,7 +436,7 @@ Server Server::cloudServer(std::string& err) {
     if (s.apiKey.empty())
         err = "No Comfy Cloud API key. Create one at platform.comfy.org, then either set the COMFY_CLOUD_API_KEY "
               "environment variable or save it as the only line of Documents\\DUGco\\comfy_cloud_api_key.txt, and "
-              "restart Nuke.";
+              "restart Fusion.";
     return s;
 }
 

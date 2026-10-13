@@ -1,4 +1,4 @@
-// DUGco AlphaGenSAM - OpenFX filter for Nuke (and other OFX hosts).
+// DUGco AlphaGenSAM - OpenFX filter for Blackmagic Fusion (and other OFX hosts).
 // Part of the DUGco OFX tool pack.
 //
 // Type what to matte ("car", "person, diner") and/or Ctrl+click it in the viewer,
@@ -350,8 +350,9 @@ static bool fetchFrame(Instance* inst, double t, int W, int H, int colour, engin
         Sleep(150);
     }
     if (!img) {
-        err = strf("Nuke was busy and didn't hand over frame %d of the input. Press Preview (or Process) again; "
-                   "if it keeps happening, check that the input has an image on that frame.",
+        err = strf("Fusion did not provide frame %d of the input. Press Preview (or Process) again; if it keeps "
+                   "happening, that frame is probably outside the clip - set Frame Range to Custom and use the "
+                   "clip's real first and last frame.",
                    (int)t);
         return false;
     }
@@ -532,7 +533,7 @@ static OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHa
     defInt(ps, "frameEnd", "last frame", "Used when frame range is custom", nullptr, 100, 0, 200);
     defDivider(ps, "process", "Process",
                "Track the selection through the range and pull the matte with Alpha-Gen on the ComfyUI backend "
-               "(Nuke waits behind a progress bar; Cancel stops it).",
+               "(the host waits behind a progress bar; Cancel stops it).",
                kOfxParamTypePushButton);
     defString(ps, "status", "status", nullptr, nullptr, "", kOfxParamStringIsSingleLine, true);
 
@@ -582,16 +583,16 @@ static OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHa
               "Where the models run.\nComfy Cloud: cloud GPUs through your Comfy Cloud subscription and an API key "
               "from the Comfy platform; no GPU needed on this machine.\nComfy Local: your own ComfyUI (server "
               "address below) with the models downloaded; needs a big GPU.",
-              "serverGroup", {"Comfy Local", "Comfy Cloud"}, kBackendCloud);
+              "serverGroup", {"Comfy Local", "Comfy Cloud"}, kBackendLocal);
     defString(ps, "cloudKey", "API key", "Comfy Cloud API key status. The key itself is kept in "
-              "Documents\\DUGco\\comfy_cloud_api_key.txt, never in the Nuke script, so scripts are safe to share.",
+              "Documents\\DUGco\\comfy_cloud_api_key.txt, never in the comp, so comps are safe to share.",
               "serverGroup", "", kOfxParamStringIsSingleLine);
     defButton(ps, "setKey", "Set API Key...", "Paste your Comfy Cloud API key (it is hidden while you type)",
               "serverGroup");
     defButton(ps, "getKey", "Get an API Key", "Opens the Comfy platform in your browser: sign in with your Comfy "
               "Cloud account and create a key", "serverGroup");
     defString(ps, "serverUrl", "local server", "Comfy Local only: the ComfyUI address (this machine or another on the "
-              "network).", "serverGroup", "http://127.0.0.1:8000");
+              "network).", "serverGroup", "http://127.0.0.1:8188");
     defButton(ps, "testServer", "Test Connection", nullptr, "serverGroup");
     defString(ps, "samModel", "SAM 3.1 checkpoint", nullptr, "serverGroup", "sam3.1_multiplex_fp16.safetensors");
     defString(ps, "unetModel", "LTX transformer", nullptr, "serverGroup",
@@ -603,7 +604,7 @@ static OfxStatus describeInContext(OfxImageEffectHandle effect, OfxPropertySetHa
     defString(ps, "audioVae", "audio VAE", nullptr, "serverGroup", "ltx-2.5-audio-vae-bf16.safetensors");
     defString(ps, "cacheDir", "cache folder",
               "Where this node keeps its downloaded mattes (and the plates it uploads). Default: a dugco_cache "
-              "folder next to the Nuke script, so results travel with the shot and reopening the script never "
+              "folder next to the comp, so results travel with the shot and reopening the script never "
               "re-runs (or re-pays for) processing. Unsaved scripts use %TEMP%\\dugco\\AlphaGenSAM.",
               "serverGroup", "[file dirname [value root.name]]/dugco_cache", kOfxParamStringIsDirectoryPath);
 
@@ -685,7 +686,7 @@ static OfxStatus createInstance(OfxImageEffectHandle effect) {
     inst->cacheVersion = ph(ps, "cacheVersion");
     if (getString(inst->session).empty()) gParam->paramSetValue(inst->session, newSessionId().c_str());
     updateRangeEnabled(inst);
-    // Load SAM 3.1 in ComfyUI now, so the first click previews quickly (once per server per Nuke session).
+    // Load SAM 3.1 in ComfyUI now, so the first click previews quickly (once per server per session).
     if (getInt(inst->backend) == kBackendLocal) {
         static std::mutex warmLock;
         static std::map<std::string, bool> warmed;
@@ -762,7 +763,7 @@ static bool askApiKey(std::string& key) {
     };
     add(L"STATIC",
         L"Paste your Comfy Cloud API key (create one at platform.comfy.org while signed in to your Comfy Cloud "
-        L"account). It is saved to Documents\\DUGco on this computer, never in the Nuke script.",
+        L"account). It is saved to Documents\\DUGco on this computer, never in the comp.",
         0, 14, 12, 480, 44, 0);
     HWND edit = add(L"EDIT", L"", ES_PASSWORD | ES_AUTOHSCROLL | WS_TABSTOP, 14, 64, 480, 24, 100);
     add(L"BUTTON", L"Save", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 104, 94, 28, IDOK);
@@ -913,9 +914,28 @@ static std::string buildJob(Instance* inst, double now, engine::Job& j, int& fir
     return "";
 }
 
-static engine::Progress progressFor(OfxImageEffectHandle effect) {
-    return [effect](double v, const std::string&) {
-        return !(gProgress && gProgress->progressUpdate(effect, std::clamp(v, 0.0, 1.0)) == kOfxStatReplyNo);
+static std::atomic<bool> gProcessing{false};  // Process is running on the UI thread (it keeps the UI alive)
+
+// Fusion has no OFX progress bar, and Process blocks the UI thread: keep the window
+// painting and answering by pumping its messages while we wait. Esc cancels.
+static void pumpUi() {
+    MSG msg;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+}
+
+static engine::Progress progressFor(OfxImageEffectHandle effect, Instance* inst = nullptr, DWORD t0 = 0) {
+    return [effect, inst, t0](double v, const std::string&) {
+        if (gProgress && gProgress->progressUpdate(effect, std::clamp(v, 0.0, 1.0)) == kOfxStatReplyNo) return false;
+        if (inst) {
+            DWORD s = (GetTickCount() - t0) / 1000;
+            setStatus(inst, strf("processing... %dm%02ds (hold Esc to cancel)", (int)s / 60, (int)s % 60));
+            pumpUi();
+            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) return false;
+        }
+        return true;
     };
 }
 
@@ -948,7 +968,7 @@ static void startPreview(OfxImageEffectHandle effect, Instance* inst, double now
     if (!frame) {
         frame = std::make_shared<engine::Frame>();
         if (!fetchFrame(inst, first + j.ref, j.W, j.H, getInt(inst->colour), *frame, err)) {
-            if (quiet) return setStatus(inst, "preview skipped: Nuke was busy - press Preview");
+            if (quiet) return setStatus(inst, "preview skipped: host was busy - press Preview");
             return message(effect, kOfxMessageError, err);
         }
         std::lock_guard<std::mutex> g(frameLock);
@@ -995,7 +1015,9 @@ static void doProcess(OfxImageEffectHandle effect, Instance* inst, double now) {
     if (gProgress) gProgress->progressStart(effect, "AlphaGenSAM: processing");
     setStatus(inst, "processing...");
     DWORD t0 = GetTickCount();
-    engine::Result r = engine::analyze(j, source, progressFor(effect));
+    gProcessing = true;
+    engine::Result r = engine::analyze(j, source, progressFor(effect, inst, t0));
+    gProcessing = false;
     if (gProgress) gProgress->progressEnd(effect);
     if (!r.ok) {
         if (!r.cancelled) message(effect, kOfxMessageError, frameErr.empty() ? r.error : frameErr + "\n" + r.error);
@@ -1018,6 +1040,7 @@ static OfxStatus instanceChanged(OfxImageEffectHandle effect, OfxPropertySetHand
     gProp->propGetString(inArgs, kOfxPropName, 0, &name);
     gProp->propGetString(inArgs, kOfxPropChangeReason, 0, &reason);
     if (!type || strcmp(type, kOfxTypeParameter) != 0 || !name) return kOfxStatReplyDefault;
+    if (gProcessing) return kOfxStatReplyDefault;  // ignore clicks that arrive while Process pumps the UI
     const bool byUser = reason && strcmp(reason, kOfxChangeUserEdited) == 0;
     const bool byPlugin = reason && strcmp(reason, kOfxChangePluginEdited) == 0;
     double now = 0;
@@ -1233,7 +1256,7 @@ static OfxStatus overlayPen(const char* action, const void* handle, OfxPropertyS
             VPoint p;
             p.x = pos[0];
             p.y = pos[1];
-            p.positive = !keyDown(VK_SHIFT);
+            p.positive = !(keyDown(VK_SHIFT) || keyDown(VK_MENU));  // Shift or Alt excludes (Fusion may swallow Ctrl+Shift)
             p.frame = frame;
             p.obj = 1;
             pts.push_back(p);
