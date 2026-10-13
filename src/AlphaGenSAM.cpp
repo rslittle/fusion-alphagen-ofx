@@ -119,7 +119,15 @@ static Instance* getInstance(OfxImageEffectHandle effect) {
 }
 
 static void message(OfxImageEffectHandle effect, const char* type, const std::string& text) {
-    if (gMessage) gMessage->message(effect, type, nullptr, "%s", text.c_str());
+    // Fusion may not provide (or may silently drop) the OFX message suite, so fall back to a Win32 box.
+    OfxStatus st = gMessage ? gMessage->message(effect, type, nullptr, "%s", text.c_str()) : kOfxStatFailed;
+    if (st != kOfxStatOK && st != kOfxStatReplyYes) {
+        UINT icon = strcmp(type, kOfxMessageError) == 0 ? MB_ICONERROR : strcmp(type, kOfxMessageWarning) == 0 ? MB_ICONWARNING : MB_ICONINFORMATION;
+        int len = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+        std::wstring w(len > 0 ? len : 1, L'\0');
+        if (len > 0) MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &w[0], len);
+        MessageBoxW(nullptr, w.c_str(), L"AlphaGenSAM", MB_OK | icon | MB_SETFOREGROUND | MB_TOPMOST);
+    }
 }
 
 static std::string getString(OfxParamHandle p, double t = 0) {
@@ -475,7 +483,7 @@ static OfxStatus describe(OfxImageEffectHandle effect) {
     gProp->propSetInt(props, kOfxImageEffectPropTemporalClipAccess, 0, 1);
     gProp->propSetString(props, kOfxImageEffectPluginRenderThreadSafety, 0, kOfxImageEffectRenderFullySafe);
     gProp->propSetInt(props, kOfxImageEffectPluginPropHostFrameThreading, 0, 1);
-    gProp->propSetPointer(props, kOfxImageEffectPluginPropOverlayInteractV1, 0, (void*)overlayMain);
+    if (gInteract) gProp->propSetPointer(props, kOfxImageEffectPluginPropOverlayInteractV1, 0, (void*)overlayMain);
     return kOfxStatOK;
 }
 
@@ -1022,7 +1030,9 @@ static OfxStatus instanceChanged(OfxImageEffectHandle effect, OfxPropertySetHand
         else if (pts.empty()) setStatus(inst, "points cleared");
         return kOfxStatOK;
     }
-    if (!byUser) return kOfxStatReplyDefault;
+    const bool isButton = n == "testServer" || n == "setKey" || n == "getKey" || n == "preview" || n == "process" ||
+                          n == "clearPoints" || n == "clearCache";
+    if (!byUser && !(isButton && !byPlugin)) return kOfxStatReplyDefault;  // some hosts send another reason for buttons
     if (n == "select") {
         if (getInt(inst->autoPreview) && !splitTerms(getString(inst->select)).empty()) startPreview(effect, inst, now, true);
     } else if (n == "preview") {
@@ -1042,10 +1052,13 @@ static OfxStatus instanceChanged(OfxImageEffectHandle effect, OfxPropertySetHand
     } else if (n == "testServer") {
         comfy::Server s;
         std::string err = backendServer(inst, s), info;
-        if (err.empty() && comfy::ping(s, info, err))
+        if (err.empty() && comfy::ping(s, info, err)) {
+            setStatus(inst, "connected: ComfyUI " + info);
             message(effect, kOfxMessageMessage, "Connected to ComfyUI " + info + " at " + s.label());
-        else
+        } else {
+            setStatus(inst, "connection failed");
             message(effect, kOfxMessageError, err);
+        }
     } else if (n == "setKey") {
         std::string key, err;
         if (askApiKey(key)) {
