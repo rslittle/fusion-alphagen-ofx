@@ -87,13 +87,10 @@ If a model is missing, the node names it when you press Process.
 
 ## Try the example
 
-The `example` folder has a short neon-diner shot (`diner_plate.mp4`) and a ready-made Nuke
-script, **`dugco_alphagensam_example.nk`** (Nuke-only; in Fusion, build the same three-tool
-setup by hand). The idea: three AlphaGenSAM tools off the same plate — **AG_Car** (typed
-`car`), **AG_Diner** (typed `diner`) and **AG_Person** (a click on the walking man) — each
-pulling its own matte, with a cut-out preview of each over a checkerboard.
-
-![Car, person and diner, each pulled by its own tool](docs/diner_cleanplate_nuke_f18.jpg)
+The `example` folder has a short neon-diner shot (`diner_plate.mp4`). Load it in Fusion and
+branch three AlphaGenSAM tools off it, typing `car`, `diner` and `person` in each tool's
+`select` field. Each tool pulls its own matte, which you can preview as a cut-out over a
+checkerboard.
 
 ## Use
 

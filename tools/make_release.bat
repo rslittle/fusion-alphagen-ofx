@@ -17,6 +17,5 @@ copy /y "%ROOT%\README.md" "%OUT%\" >nul
 copy /y "%ROOT%\LICENSE" "%OUT%\" >nul
 mkdir "%OUT%\example"
 copy /y "%ROOT%\example\diner_plate.mp4" "%OUT%\example\" >nul
-copy /y "%ROOT%\example\dugco_alphagensam_example.nk" "%OUT%\example\" >nul
 powershell -NoProfile -Command "Compress-Archive -Force -Path '%OUT%\*' -DestinationPath '%ROOT%\dist\%NAME%.zip'"
 echo Release: %ROOT%\dist\%NAME%.zip
